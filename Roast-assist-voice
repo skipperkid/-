@@ -5,65 +5,95 @@ import plotly.express as px
 import datetime
 import re
 
-# ページ設定（スマホで見やすいようワイドモード）
-st.set_page_config(page_title="手鍋焙煎音声アシスト", layout="centered")
+# --- ブラウザの自動翻訳によるクラッシュを防止する設定 ---
+st.set_page_config(page_title="手鍋焙煎アシスト", layout="centered")
+
+st.markdown(
+    """
+    <style>
+        /* 翻訳拒否のクラスを指定 */
+        .notranslate { translate: no !important; }
+    </style>
+    <script>
+        // HTML要素自体に翻訳拒否属性を追加
+        document.documentElement.setAttribute('lang', 'ja');
+        document.documentElement.classList.add('notranslate');
+    </script>
+    """,
+    unsafe_allow_html=True
+)
 
 st.title("☕️ 手鍋焙煎音声ロガー")
-st.caption("スマホのマイクに向かって温度を数字で話してください")
+st.caption("スマホを横に置いて、温度を声で記録しましょう")
 
-# --- データ管理 ---
+# --- セッション状態（データ保持） ---
 if 'start_time' not in st.session_state:
     st.session_state.start_time = None
 if 'history' not in st.session_state:
     st.session_state.history = []
 
-# --- タイマー制御 ---
-col_btn1, col_btn2 = st.columns(2)
-with col_btn1:
+# --- 操作ボタン ---
+col1, col2 = st.columns(2)
+with col1:
     if st.button("🔥 焙煎開始", use_container_width=True):
         st.session_state.start_time = datetime.datetime.now()
         st.session_state.history = []
-with col_btn2:
+        st.rerun()
+with col2:
     if st.button("⏹ リセット", use_container_width=True):
         st.session_state.start_time = None
         st.session_state.history = []
+        st.rerun()
+
+st.divider()
 
 # --- 音声入力セクション ---
-st.divider()
-st.subheader("🎤 音声で記録")
+if st.session_state.start_time:
+    st.subheader("🎤 温度を話してください")
+    
+    # 音声認識コンポーネント
+    # スマホの場合、このボタンをタップして話します
+    text = speech_to_text(
+        language='ja',
+        start_prompt="タップして計測（例：185）",
+        stop_prompt="完了",
+        just_once=False,
+        key='roast_stt'
+    )
 
-# スマホのブラウザで使いやすいSTTコンポーネント
-text = speech_to_text(
-    language='ja',
-    start_prompt="タップして話す（例：180.5）",
-    stop_prompt="完了",
-    just_once=False,
-    key='speech'
-)
-
-if text and st.session_state.start_time:
-    # 数字を抽出（「180度」「180.5」などから数字のみ取得）
-    nums = re.findall(r"\d+\.?\d*", text)
-    if nums:
-        temp = float(nums[0])
-        now = datetime.datetime.now()
-        elapsed = (now - st.session_state.start_time).total_seconds() / 60.0
-        
-        # データの重複追加を簡易的に防止
-        st.session_state.history.append({"Time": round(elapsed, 2), "Temp": temp})
-        st.toast(f"{round(elapsed, 2)}分: {temp}℃ を記録！", icon="✅")
+    if text:
+        # 数字（整数または小数）を抽出
+        found_nums = re.findall(r"\d+\.?\d*", text)
+        if found_nums:
+            temp = float(found_nums[0])
+            # 経過時間を計算
+            elapsed = (datetime.datetime.now() - st.session_state.start_time).total_seconds() / 60.0
+            
+            # 記録を追加
+            st.session_state.history.append({
+                "Time": round(elapsed, 2),
+                "Temp": temp
+            })
+            st.toast(f"記録完了: {temp}℃", icon="🌡️")
 
 # --- グラフ表示 ---
 if st.session_state.history:
     df = pd.DataFrame(st.session_state.history)
     fig = px.line(df, x="Time", y="Temp", markers=True)
-    fig.update_layout(xaxis_title="経過時間 (分)", yaxis_title="温度 (℃)")
+    fig.update_layout(
+        xaxis_title="経過時間 (分)",
+        yaxis_title="温度 (℃)",
+        yaxis=dict(range=[50, 250]) # オールパンの温度域
+    )
     st.plotly_chart(fig, use_container_width=True)
     
-    # 記録一覧をスマホで見やすく表示
-    with st.expander("記録データ一覧"):
-        st.dataframe(df, use_container_width=True)
-elif st.session_state.start_time:
-    st.info("タイマー作動中... 温度を話すとグラフが描画されます。")
+    with st.expander("詳細データ表示"):
+        st.table(df)
 else:
-    st.warning("「焙煎開始」を押すとタイマーが始まります。")
+    if st.session_state.start_time:
+        st.info("タイマー作動中。マイクボタンを押して温度を話すと記録されます。")
+    else:
+        st.warning("「焙煎開始」ボタンを押すと記録が始められます。")
+
+st.divider()
+st.caption("※スマホのブラウザ翻訳機能は『オフ』にして使用してください。")
