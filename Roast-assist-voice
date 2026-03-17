@@ -1,0 +1,69 @@
+import streamlit as st
+from streamlit_mic_recorder import speech_to_text
+import pandas as pd
+import plotly.express as px
+import datetime
+import re
+
+# ページ設定（スマホで見やすいようワイドモード）
+st.set_page_config(page_title="手鍋焙煎音声アシスト", layout="centered")
+
+st.title("☕️ 手鍋焙煎音声ロガー")
+st.caption("スマホのマイクに向かって温度を数字で話してください")
+
+# --- データ管理 ---
+if 'start_time' not in st.session_state:
+    st.session_state.start_time = None
+if 'history' not in st.session_state:
+    st.session_state.history = []
+
+# --- タイマー制御 ---
+col_btn1, col_btn2 = st.columns(2)
+with col_btn1:
+    if st.button("🔥 焙煎開始", use_container_width=True):
+        st.session_state.start_time = datetime.datetime.now()
+        st.session_state.history = []
+with col_btn2:
+    if st.button("⏹ リセット", use_container_width=True):
+        st.session_state.start_time = None
+        st.session_state.history = []
+
+# --- 音声入力セクション ---
+st.divider()
+st.subheader("🎤 音声で記録")
+
+# スマホのブラウザで使いやすいSTTコンポーネント
+text = speech_to_text(
+    language='ja',
+    start_prompt="タップして話す（例：180.5）",
+    stop_prompt="完了",
+    just_once=False,
+    key='speech'
+)
+
+if text and st.session_state.start_time:
+    # 数字を抽出（「180度」「180.5」などから数字のみ取得）
+    nums = re.findall(r"\d+\.?\d*", text)
+    if nums:
+        temp = float(nums[0])
+        now = datetime.datetime.now()
+        elapsed = (now - st.session_state.start_time).total_seconds() / 60.0
+        
+        # データの重複追加を簡易的に防止
+        st.session_state.history.append({"Time": round(elapsed, 2), "Temp": temp})
+        st.toast(f"{round(elapsed, 2)}分: {temp}℃ を記録！", icon="✅")
+
+# --- グラフ表示 ---
+if st.session_state.history:
+    df = pd.DataFrame(st.session_state.history)
+    fig = px.line(df, x="Time", y="Temp", markers=True)
+    fig.update_layout(xaxis_title="経過時間 (分)", yaxis_title="温度 (℃)")
+    st.plotly_chart(fig, use_container_width=True)
+    
+    # 記録一覧をスマホで見やすく表示
+    with st.expander("記録データ一覧"):
+        st.dataframe(df, use_container_width=True)
+elif st.session_state.start_time:
+    st.info("タイマー作動中... 温度を話すとグラフが描画されます。")
+else:
+    st.warning("「焙煎開始」を押すとタイマーが始まります。")
